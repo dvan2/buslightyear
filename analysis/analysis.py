@@ -13,6 +13,8 @@ latest_bc = None
 wall_clock_time = None
 unique_vehicles = set()
 unique_trips = set()
+expected_count = None
+sentinel_time = None
 
 
 #---Helper Functions-------------------------------------------------------
@@ -42,7 +44,7 @@ def format_time(raw_timestamp):
 
 
 #---Congiguration----------------------------------------------------------
-PROJECT_ID       = 'de-project-bus-lightyear'
+PROJECT_ID       = 'plasma-winter-494417-a8'
 SUBSCRIPTION_ID  = 'analysis_sub'
 TIMEOUT_SECONDS  = 500   ##### delete this later (see instructions above)
 subscriber = pubsub_v1.SubscriberClient()
@@ -51,18 +53,44 @@ sub_path   = subscriber.subscription_path(PROJECT_ID, SUBSCRIPTION_ID)
 #---Callback Function------------------------------------------------------
 def callback(message):
         global breadcrumb_count, unique_vehicles, unique_trips, earliest_bc, latest_bc, wall_clock_time
+        global expected_count, sentinel_time
         message.ack()
         breadcrumb = json.loads(message.data.decode('utf-8')) # one breadcrumb
 
         # analysis happens here
         # Check for Sentinel (VEHICLE_ID = 0)
         if breadcrumb['VEHICLE_ID'] == 0:
+          expected_count = breadcrumb['METERS']
           sentinel_time = time.time()
 
+        else:
+          if wall_clock_time is None: #start timer when first breadcrumb recieved
+              wall_clock_time = time.time()
+              print(f"First breadcrumb received at {format_time(wall_clock_time)}")
+
+          breadcrumb_count = breadcrumb_count + 1
+
+          if breadcrumb_count % 10000 == 0:
+              print(f"Collected {breadcrumb_count} so far")
+          
+          unique_vehicles.add(breadcrumb['VEHICLE_ID'])
+          unique_trips.add(breadcrumb['EVENT_NO_TRIP'])
+
+          raw_opd = breadcrumb['OPD_DATE']
+          raw_act = breadcrumb['ACT_TIME']
+
+          current_bc_time = calc_breadcrumb_timestamp(raw_opd, raw_act)
+
+          if latest_bc is None or current_bc_time > latest_bc:
+              latest_bc = current_bc_time
+          if earliest_bc is None or current_bc_time < earliest_bc:
+            earliest_bc = current_bc_time
+
+        if expected_count is not None and breadcrumb_count == expected_count:
           elapsed_time = sentinel_time - wall_clock_time
           throughput = breadcrumb_count / elapsed_time
 
-        #---Summary Statistics-----------------------------------------------------
+          #---Summary Statistics-----------------------------------------------------
           print("\nSentinel Recieved")
           print("Summary Statistics:")
           print(f"First message received: {format_time(wall_clock_time)}")
@@ -77,6 +105,7 @@ def callback(message):
 
         #----Reset Data Structure(s)------------------------------------------------
           breadcrumb_count = 0
+          expected_count = 0
           unique_vehicles.clear()
           unique_trips.clear()
           earliest_bc = None
@@ -84,38 +113,11 @@ def callback(message):
           wall_clock_time = None
           sentinel_time = None
 
-        else:
-          if wall_clock_time is None: #start timer when first breadcrumb recieved
-              wall_clock_time = time.time()
-              print(f"First breadcrumb received at {format_time(wall_clock_time)}")
-
-          breadcrumb_count = breadcrumb_count + 1
-
-          if breadcrumb_count % 10000 == 0:
-              print(f"Collected {breadcrumb_count} so far")
-
-
-          unique_vehicles.add(breadcrumb['VEHICLE_ID'])
-          unique_trips.add(breadcrumb['EVENT_NO_TRIP'])
-
-          raw_opd = breadcrumb['OPD_DATE']
-          raw_act = breadcrumb['ACT_TIME']
-
-          current_bc_time = calc_breadcrumb_timestamp(raw_opd, raw_act)
-          if latest_bc is None:
-              latest_bc = current_bc_time
-          if earliest_bc is None:
-            earliest_bc = current_bc_time
-          else:
-            if current_bc_time < earliest_bc:
-              earliest_bc = current_bc_time
-            if current_bc_time > latest_bc:
-              latest_bc = current_bc_time
-
-
 
 #---Listening--------------------------------------------------------------
 streaming_pull = subscriber.subscribe(sub_path, callback=callback)
+
+print(f"Listening for messages on {SUBSCRIPTION_ID} . . .")
 
 with subscriber:
         try:
@@ -123,4 +125,3 @@ with subscriber:
         except Exception:
                 streaming_pull.cancel()
                 streaming_pull.result()
-
