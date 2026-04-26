@@ -8,9 +8,9 @@ from zoneinfo import ZoneInfo
 
 
 # extract Dazzle vehicles to python list
-#dazzle_df = pd.read_csv('VehicleGroupsIDs-NEW.csv')
-#dazzle_list = dazzle_df['Dazzle'].to_list()
-dazzle_list = list([3011, 3054, 3856,3019,3051,3033])
+dazzle_df = pd.read_csv('../VehicleGroupsIDs-NEW.csv')
+dazzle_list = dazzle_df['Dazzle'].to_list()
+#dazzle_list = list([3011, 3054, 3856,3019,3051,3033])
 
 # configuration and variables
 PROJECT_ID = 'plasma-winter-494417-a8'
