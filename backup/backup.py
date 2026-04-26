@@ -14,6 +14,10 @@ SUBSCRIPTION_ID  = 'backup_sub'
 subscriber       = pubsub_v1.SubscriberClient()
 sub_path         = subscriber.subscription_path(PROJECT_ID, SUBSCRIPTION_ID)
 
+LOG_DIR = 'backup/backup_logs'
+# make a directory if it doesn't exists for log files
+os.makedirs(LOG_DIR, exist_ok=True)
+
 breadcrumb_count = 0
 expected_count   = None
 first_bc_time    = None
@@ -53,6 +57,8 @@ def callback(message):
             first_bc_time = time.time()
             date_str = datetime.fromtimestamp(first_bc_time, tz=ZoneInfo("America/Los_Angeles")).strftime('%Y-%m-%d')
             current_filename = f"breadcrumbs_{date_str}.log"
+            # create file to be in the directory
+            current_filename = os.path.join(LOG_DIR, f"breadcrumbs_{date_str}.log")
             print(f"[{format_time(first_bc_time)}] Writing to file: {current_filename}")
 
         # If we hit Sentinel message, get expected message count
