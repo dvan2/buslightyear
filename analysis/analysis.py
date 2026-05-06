@@ -9,6 +9,11 @@ import logging
 import threading
 import os
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s"
+)
+
 def validate_batch(batch_df):
     """
     Validates a batch of breadcrumb records.
@@ -101,11 +106,8 @@ def validate_batch(batch_df):
     # Get violations based on the flag at IS_VALID
     violations_df =batch_df[batch_df['IS_VALID'] == False]
 
-    if violations_df.empty:
-        logging.info("No violations found")
-    else:
-        for row in violations_df.itertuples():
-            logging.warning("VALIDATION VIOLATION - Reason: %s | Record: %s", row.VIOLATION_REASON, row)
+    for row in violations_df.itertuples():
+        logging.warning("VALIDATION VIOLATION - [%s] | record: %s", row.VIOLATION_REASON, row)
 
     # Return the data frame with violation flags
     return batch_df
@@ -177,9 +179,6 @@ def write_invalid_records(invalid_records, run_date=None):
     os.makedirs("/home/davvan/invalid_data", exist_ok=True)
     invalid_records.to_json(filename, orient='records', lines=True, mode='a')
 
-    print(f"Wrote {len(invalid_records)} invalid records to {filename}")
-
-
 def process_pandas_batch():
     global message_batch, breadcrumb_count, unique_vehicles, unique_trips
 
@@ -223,9 +222,6 @@ def callback(message):
 
           breadcrumb_count = breadcrumb_count + 1
 
-          if breadcrumb_count % 10000 == 0:
-              print(f"Collected {breadcrumb_count} so far")
-          
           unique_vehicles.add(breadcrumb['VEHICLE_ID'])
           unique_trips.add(breadcrumb['EVENT_NO_TRIP'])
 
@@ -239,7 +235,7 @@ def callback(message):
           if earliest_bc is None or current_bc_time < earliest_bc:
             earliest_bc = current_bc_time
 
-        with batch_lock:
+          with batch_lock:
             # collect bc untill batch limit and process it
             message_batch.append(breadcrumb)
             if len(message_batch) >= BATCH_LIMIT:
@@ -265,7 +261,7 @@ def callback(message):
 
         #----Reset Data Structure(s)------------------------------------------------
           breadcrumb_count = 0
-          expected_count = 0
+          expected_count = None
           unique_vehicles.clear()
           unique_trips.clear()
           earliest_bc = None
@@ -277,7 +273,7 @@ def callback(message):
 #---Listening--------------------------------------------------------------
 streaming_pull = subscriber.subscribe(sub_path, callback=callback)
 
-print(f"Listening for messages on {SUBSCRIPTION_ID} . . .")
+print(f"Listening for messages on {SUBSCRIPTION_ID} at {format_time(time.time())} . . .")
 
 with subscriber:
         try:
