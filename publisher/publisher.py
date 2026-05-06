@@ -8,9 +8,10 @@ from zoneinfo import ZoneInfo
 
 
 # extract Dazzle vehicles to python list
-dazzle_df = pd.read_csv('../VehicleGroupsIDs-NEW.csv')
+# use absolute path toresolve unfound file
+dazzle_df = pd.read_csv('/home/davvan/VehicleGroupsIDs-NEW.csv')
 dazzle_list = dazzle_df['Dazzle'].to_list()
-#dazzle_list = list([3011, 3054, 3856,3019,3051,3033])
+# dazzle_list = list([3011, 3054, 3856,3019,3051,3033])
 
 # configuration and variables
 PROJECT_ID = 'plasma-winter-494417-a8'
@@ -34,7 +35,6 @@ start_time     = time.time()    # start the clock
 print(f'Start time: {start_time}')
 try:
   for index, vehicle_id in enumerate(dazzle_list):
-    print(f'Fetching data for vehicle {vehicle_id} ({index+1}/{len(dazzle_list)})...')
     url = f'https://busdata.cs.pdx.edu/api/getBreadCrumbs?vehicle_id={vehicle_id}'
     # attempt fetching JSON for current {vehicle_id}
     try:
@@ -59,50 +59,41 @@ try:
     except requests.exceptions.Timeout:
       print(f'Request timeout for {vehicle_id}.')
 finally:
-  # Here we can wait untill actual count is sent by publisher
-  print(f"\nWaiting for {breadcrumb_count} background messages to finish publishing...")
-  while published_count < breadcrumb_count:
-    print(f'published:{published_count}')
-    print(breadcrumb_count)
-    time.sleep(0.5)
+  if breadcrumb_count > 0:
+    # Here we can wait untill actual count is sent by publisher
+    print(f"\nWaiting for {breadcrumb_count} background messages to finish publishing...")
+    while published_count < breadcrumb_count:
+      print(f'published:{published_count}')
+      print(breadcrumb_count)
+      time.sleep(0.5)
 
-  final_time = time.time() # record end of entire publisher run
-  timestamp = datetime.fromtimestamp(final_time, tz=ZoneInfo("America/Los_Angeles"))
-  sentinel_timestamp = timestamp.strftime("%d%b%Y: %H:%M%S").upper()
-  sentinel_data =  {
-      'EVENT_NO_TRIP': 0, 'EVENT_NO_STOP': 0,
-      'OPD_DATE': sentinel_timestamp, 'VEHICLE_ID': 0, 'METERS': breadcrumb_count,
-      'ACT_TIME': 0.0, 'GPS_LONGITUDE': 0.0, 'GPS_LATITUDE': 0.0,
-      'GPS_SATELLITES': 0.0, 'GPS_HDOP': 0.0
-    }
-  '''
-  Send sentinel message
-  I implemented the sentinel message as a breadcrumb with most attributes set to zero. OPD_DATE contains the full actual timestamp it was sent.
-  Meters contains the total number of breadcrumbs sent. The listener program can check if the VEHICLE_ID is zero, and if so, knows this breadcrumb is actually the sentinel.
-  '''
-  sentinel_payload = json.dumps(sentinel_data).encode('utf-8')
-  sentinel_future = publisher.publish(topic_path, sentinel_payload)
-  sentinel_future.result()
-  print(f'\nSentinel message has been sent: {sentinel_future}')
-  print(f'{sentinel_data}')
+    final_time = time.time() # record end of entire publisher run
+    timestamp = datetime.fromtimestamp(final_time, tz=ZoneInfo("America/Los_Angeles"))
+    sentinel_timestamp = timestamp.strftime("%d%b%Y: %H:%M%S").upper()
+    sentinel_data =  {
+        'EVENT_NO_TRIP': 0, 'EVENT_NO_STOP': 0,
+        'OPD_DATE': sentinel_timestamp, 'VEHICLE_ID': 0, 'METERS': breadcrumb_count,
+        'ACT_TIME': 0.0, 'GPS_LONGITUDE': 0.0, 'GPS_LATITUDE': 0.0,
+        'GPS_SATELLITES': 0.0, 'GPS_HDOP': 0.0
+      }
 
-  # calculate summary statistics
-  wall_time = final_time - start_time
-  received_vehicles = len(dazzle_list) - len(failed_ids)
-  throughput_rate = float(breadcrumb_count) / wall_time
+    sentinel_payload = json.dumps(sentinel_data).encode('utf-8')
+    sentinel_future = publisher.publish(topic_path, sentinel_payload)
+    sentinel_future.result()
+    print(f'\nSentinel message has been sent: {sentinel_future}')
+    print(f'{sentinel_data}')
 
+    # calculate summary statistics
+    wall_time = final_time - start_time
+    received_vehicles = len(dazzle_list) - len(failed_ids)
+    throughput_rate = float(breadcrumb_count) / wall_time
 
-  # print summary statistics
-  print(f'\n\nSummary Statistics:\n---------------------------------------')
-  print(f'Vehicles with available records: {received_vehicles}')
-  print(f'Breadcrumbs published: {breadcrumb_count}')
-  print(f'Sentinel message sent at {sentinel_timestamp}')
-  print(f'Wall time: {wall_time:.3f}s')
-  print(f'Throughput: {throughput_rate:.3f} breadcrumbs per second')
-
-
-# package sentinel payload
-
-
+    # print summary statistics
+    print(f'\n\nSummary Statistics:\n---------------------------------------')
+    print(f'Vehicles with available records: {received_vehicles}')
+    print(f'Breadcrumbs published: {breadcrumb_count}')
+    print(f'Sentinel message sent at {sentinel_timestamp}')
+    print(f'Wall time: {wall_time:.3f}s')
+    print(f'Throughput: {throughput_rate:.3f} breadcrumbs per second')
 
 
