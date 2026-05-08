@@ -195,6 +195,11 @@ def process_pandas_batch():
     if not bad_df.empty:
         write_invalid_records(bad_df)
     
+    # good_df['timestamp'] = good_df['OPD_DATE'] + good_df['ACT_TIME']
+    # good_df = good_df.drop(columns=['EVENT_NO_STOP', 'GPS_SATELLITES','GDS_HDOP', 'OPD_DATE', 'ACT_TIME'])
+    # print(good_df)
+    
+    
     message_batch.clear()
 
 
@@ -242,32 +247,33 @@ def callback(message):
                 process_pandas_batch()
 
 
-        if expected_count is not None and breadcrumb_count == expected_count:
-          elapsed_time = sentinel_time - wall_clock_time
-          throughput = breadcrumb_count / elapsed_time
+        with batch_lock:
+            if expected_count is not None and breadcrumb_count == expected_count:
+                elapsed_time = sentinel_time - wall_clock_time
+                throughput = breadcrumb_count / elapsed_time
 
-          #---Summary Statistics-----------------------------------------------------
-          print("\nSentinel Recieved")
-          print("Summary Statistics:")
-          print(f"First message received: {format_time(wall_clock_time)}")
-          print(f"Unique Vehicle IDs: {len(unique_vehicles)}")
-          print(f"Earliest Breadcrumb from OPD and ACT: {earliest_bc}")
-          print(f"Latest Breadcrumb from OPD and ACT: {latest_bc}")
-          print(f"Unique Trip IDs: {len(unique_trips)}")
-          print(f"Total Breadcrumbs Received: {breadcrumb_count}")
-          print(f"Sentinel Received Time: {format_time(sentinel_time)}")
-          print(f"Ellapsed Time: {elapsed_time:.3f}s")
-          print(f"Throughput: {throughput:.3f} msg/s")
+                #---Summary Statistics-----------------------------------------------------
+                print("\nSentinel Recieved")
+                print("Summary Statistics:")
+                print(f"First message received: {format_time(wall_clock_time)}")
+                print(f"Unique Vehicle IDs: {len(unique_vehicles)}")
+                print(f"Earliest Breadcrumb from OPD and ACT: {earliest_bc}")
+                print(f"Latest Breadcrumb from OPD and ACT: {latest_bc}")
+                print(f"Unique Trip IDs: {len(unique_trips)}")
+                print(f"Total Breadcrumbs Received: {breadcrumb_count}")
+                print(f"Sentinel Received Time: {format_time(sentinel_time)}")
+                print(f"Ellapsed Time: {elapsed_time:.3f}s")
+                print(f"Throughput: {throughput:.3f} msg/s")
 
-        #----Reset Data Structure(s)------------------------------------------------
-          breadcrumb_count = 0
-          expected_count = None
-          unique_vehicles.clear()
-          unique_trips.clear()
-          earliest_bc = None
-          latest_bc = None
-          wall_clock_time = None
-          sentinel_time = None
+                #----Reset Data Structure(s)------------------------------------------------
+                breadcrumb_count = 0
+                expected_count = None
+                unique_vehicles.clear()
+                unique_trips.clear()
+                earliest_bc = None
+                latest_bc = None
+                wall_clock_time = None
+                sentinel_time = None
 
 
 #---Listening--------------------------------------------------------------
