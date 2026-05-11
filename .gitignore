@@ -1,3 +1,4 @@
 venv/
 *.log*
 invalid_data/
+__pycache__/

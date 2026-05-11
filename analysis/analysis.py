@@ -9,12 +9,18 @@ import logging
 import threading
 import os
 
+MAX_LATITUDE = 90
+MAX_LONGITUDE = 180
+PDX_LAT_MIN, PDX_LAT_MAX = 45.0, 46.0
+PDX_LON_MIN, PDX_LON_MAX = -123.5, -122.0
+MAX_VEHICLE_ID = 9999999
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s"
 )
 
-def validate_batch(batch_df):
+def validate_batch(batch_df) -> pd.DataFrame:
     """
     Validates a batch of breadcrumb records.
     Creates columns for invalid records with IS_VALID = False
@@ -24,86 +30,44 @@ def validate_batch(batch_df):
     batch_df['IS_VALID'] = True
     batch_df['VIOLATION_REASON'] = ""
 
-    #---ASSERTION 1---[LIMIT]  GPS_LATITUDE must be non-null and in [-90, 90]-----
-    lat_over_positive_90  =batch_df['GPS_LATITUDE'] > 90
-    lat_under_negative_90 =batch_df['GPS_LATITUDE'] < -90
-    null_lat =batch_df['GPS_LATITUDE'].isna()
-    
-    bad_lat_mask = lat_over_positive_90 | lat_under_negative_90 | null_lat
-    
-    batch_df.loc[bad_lat_mask, 'IS_VALID'] = False
-    batch_df.loc[bad_lat_mask, 'VIOLATION_REASON'] += 'A1: GPS_LATITUDE is null or out of range [-90, 90] | '
+    trip_counts = batch_df.groupby(['VEHICLE_ID', 'OPD_DATE', 'ACT_TIME'])['EVENT_NO_TRIP'].transform('nunique')
 
-    #---ASSERTION 2---[LIMIT]  GPS_LONGITUDE must be non-null and in [-180, 180]-----
-    long_over_positive_180  =batch_df['GPS_LONGITUDE'] > 180
-    long_under_negative_180 =batch_df['GPS_LONGITUDE'] < -180
-    null_long =batch_df['GPS_LONGITUDE'].isna()
-    
-    bad_long_mask = long_over_positive_180 | long_under_negative_180 | null_long
-    
-    batch_df.loc[bad_long_mask, 'IS_VALID'] = False
-    batch_df.loc[bad_long_mask, 'VIOLATION_REASON'] += 'A2: GPS_LONGITUDE is null or out of range [-180, 180] | '
+    rules = [
+        #---ASSERTION 1---[LIMIT]  GPS_LATITUDE must be non-null and in [-90, 90]-----
+        (batch_df['GPS_LATITUDE'].isna() | (batch_df['GPS_LATITUDE'] > MAX_LATITUDE) | (batch_df['GPS_LATITUDE'] < -MAX_LATITUDE),
+        'A1: GPS_LATITUDE is null or out of range [-90, 90] | '),
 
-    #---ASSERTION 3---[EXISTENCE]  OPD_DATE must exist-----
-    null_opd_date =batch_df['OPD_DATE'].isna()
-    blank_opd_date =batch_df['OPD_DATE'] == ''
-    
-    bad_opd_mask = null_opd_date | blank_opd_date
-    
-    batch_df.loc[bad_opd_mask, 'IS_VALID'] = False
-    batch_df.loc[bad_opd_mask, 'VIOLATION_REASON'] += 'A3: OPD_DATE is null | '
+        #---ASSERTION 2---[LIMIT]  GPS_LONGITUDE must be non-null and in [-180, 180]-----
+        (batch_df['GPS_LONGITUDE'].isna() | (batch_df['GPS_LONGITUDE'] > MAX_LATITUDE) | (batch_df['GPS_LONGITUDE'] < -MAX_LONGITUDE),
+         'A2: GPS_LONGITUDE is null or out of range [-180, 180] | '),
 
-    #---ASSERTION 4---[LIMIT]  vehicle_id must non-null, greater than 0, and less than 9999999-----
-    null_vehicle_id =batch_df['VEHICLE_ID'].isna()
-    zero_or_less =batch_df['VEHICLE_ID'] <= 0
-    over_limit   =batch_df['VEHICLE_ID'] >= 9999999
-    
-    bad_vid_mask = null_vehicle_id | zero_or_less | over_limit
-    
-    batch_df.loc[bad_vid_mask, 'IS_VALID'] = False
-    batch_df.loc[bad_vid_mask, 'VIOLATION_REASON'] += 'A4: VEHICLE_ID is null or out of range | '
-
-    #---ASSERTION 5---[INTER-RECORD]  A vehicle can't be on two different trips at once-----
-    summary_table =batch_df.groupby(['VEHICLE_ID', 'OPD_DATE', 'ACT_TIME'])['EVENT_NO_TRIP'].nunique().reset_index(name='unique_event_no_trip_count').copy()
-    offending_vehicle_date_times = summary_table[summary_table['unique_event_no_trip_count'] > 1]
-    
-    for row_tuple in offending_vehicle_date_times.itertuples(index=False):
-        invalid_vehicle  = row_tuple.VEHICLE_ID
-        invalid_opd_date = row_tuple.OPD_DATE
-        invalid_act_time = row_tuple.ACT_TIME
+        #---ASSERTION 3---[EXISTENCE]  OPD_DATE must exist-----
+        (batch_df['OPD_DATE'].isna() | (batch_df['OPD_DATE'] == ''),
+         'A3: OPD_DATE is null | '),
         
-        # Create a mask for this specific bad trip
-        bad_trip_mask = (batch_df['VEHICLE_ID'] == invalid_vehicle) & (batch_df['OPD_DATE'] == invalid_opd_date) & (batch_df['ACT_TIME'] == invalid_act_time)
+        #---ASSERTION 4---[LIMIT]  vehicle_id must non-null, greater than 0, and less than 9999999-----
+        (batch_df['VEHICLE_ID'].isna() | (batch_df['VEHICLE_ID'] <= 0) | (batch_df['VEHICLE_ID'] >= MAX_VEHICLE_ID),
+         'A4: VEHICLE_ID is null or out of range | '),
         
-        batch_df.loc[bad_trip_mask, 'IS_VALID'] = False
-        batch_df.loc[bad_trip_mask, 'VIOLATION_REASON'] += 'A5: A vehicle can\'t be on two different trips at once | '
+        #---ASSERTION 5---[INTER-RECORD]  A vehicle can't be on two different trips at once-----
+        (trip_counts > 1,
+         'A5: A vehicle can\'t be on two different trips at once | '),
+         
+        #---ASSERTION 6---[INTRA-RECORD / LIMIT]  GPS coordinates must fall within PDX area lat/long limits -----
+        ((batch_df['GPS_LATITUDE'] < PDX_LAT_MAX) | (batch_df['GPS_LATITUDE'] > PDX_LAT_MIN) | 
+         (batch_df['GPS_LONGITUDE'] < PDX_LON_MAX) | (batch_df['GPS_LONGITUDE'] > PDX_LON_MIN),
+         'A6: GPS coordinates are outside of PDX area | '),
+         
+        #---ASSERTION 7---[EXISTENCE]  Following must be non-null: EVENT_NO_TRIP, EVENT_NO_STOP, METERS, ACT_TIME
+        (batch_df['EVENT_NO_TRIP'].isna() | batch_df['EVENT_NO_STOP'].isna() | 
+         batch_df['METERS'].isna() | batch_df['ACT_TIME'].isna(),
+         'A7: Expecting non-null fields, null value found | ')
+    ]
 
-    #---ASSERTION 6---[INTRA-RECORD / LIMIT]  GPS coordinates must fall within PDX area lat/long limits -----
-    PDXAREA_LAT_MIN, PDXAREA_LAT_MAX =  45.0,  46.0
-    PDXAREA_LON_MIN, PDXAREA_LON_MAX = -123.5, -122.0
-    
-    invalid_lat_min =batch_df['GPS_LATITUDE'] < PDXAREA_LAT_MIN
-    invalid_lat_max =batch_df['GPS_LATITUDE'] > PDXAREA_LAT_MAX
-    invalid_long_min =batch_df['GPS_LONGITUDE'] < PDXAREA_LON_MIN
-    invalid_long_max =batch_df['GPS_LONGITUDE'] > PDXAREA_LON_MAX
-    
-    bad_coord_mask = invalid_lat_min | invalid_lat_max | invalid_long_min | invalid_long_max
-    
-    batch_df.loc[bad_coord_mask, 'IS_VALID'] = False
-    batch_df.loc[bad_coord_mask, 'VIOLATION_REASON'] += 'A6: GPS coordinates are outside of PDX area | '
+    for mask, reason in rules:
+        batch_df.loc[mask, 'IS_VALID'] = False
+        batch_df.loc[mask, 'VIOLATION_REASON'] += reason
 
-    #---ASSERTION 7---[EXISTENCE]  Following must be non-null: EVENT_NO_TRIP, EVENT_NO_STOP, METERS, ACT_TIME
-    null_no_trip =batch_df['EVENT_NO_TRIP'].isna()
-    null_no_stop =batch_df['EVENT_NO_STOP'].isna()
-    null_meters  =batch_df['METERS'].isna()
-    null_act_time =batch_df['ACT_TIME'].isna()
-    
-    bad_fields_mask = null_no_trip | null_no_stop | null_meters | null_act_time
-    
-    batch_df.loc[bad_fields_mask, 'IS_VALID'] = False
-    batch_df.loc[bad_fields_mask, 'VIOLATION_REASON'] += 'A7: Expecting non-null fields, null value found | '
-
-    # Get violations based on the flag at IS_VALID
     violations_df =batch_df[batch_df['IS_VALID'] == False]
 
     for row in violations_df.itertuples():
@@ -136,20 +100,6 @@ SUBSCRIPTION_ID  = 'analysis_sub'
 subscriber = pubsub_v1.SubscriberClient()
 sub_path   = subscriber.subscription_path(PROJECT_ID, SUBSCRIPTION_ID)
 
-
-#---Data Structures---------------------------------------------------------
-breadcrumb_count = 0
-earliest_bc = None
-latest_bc = None
-wall_clock_time = None
-unique_vehicles = set()
-unique_trips = set()
-expected_count = None
-sentinel_time = None
-
-message_batch= []
-batch_lock = threading.Lock()
-BATCH_LIMIT = 1000
 
 def write_invalid_records(invalid_records, run_date=None):
     """
@@ -219,7 +169,44 @@ class BreadcrumbProcessor:
             write_invalid_records(bad_df)
         
         self.message_batch.clear()
-    
+
+
+    def _transform_data(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Creates new column timestamp, speed, drops some columns
+
+        Args:
+            df (pd.DataFrame): breadcrumbs rows to transform
+
+        """        
+        opd_date = pd.to_datetime(df['OPD_DATE'], format='%d%b%Y:%H:%M:%S')
+        act_time = pd.to_timedelta(df['ACT_TIME'], unit='s')
+        df['timestamp'] = opd_date + act_time
+        df = df.drop(columns=['EVENT_NO_STOP', 'GPS_SATELLITES', 'GPS_HDOP', 'OPD_DATE', 'ACT_TIME'])
+
+        # --- Calculate Speed ----
+        df = df.sort_values(by=['EVENT_NO_TRIP', 'timestamp'])
+
+        dif_meters = df.groupby('EVENT_NO_TRIP')['METERS'].diff()
+        dif_secs = df.groupby('EVENT_NO_TRIP')['timestamp'].diff().dt.total_seconds()
+
+        df['speed'] = dif_meters/dif_secs
+
+        df['speed'] = df['speed'].fillna(0.0)
+
+        # -- Rename Columns for db ---
+        df = df.rename(columns={
+            'EVENT_NO_TRIP': 'trip_id',
+            'VEHICLE_ID': 'vehicle_id',
+            'GPS_LONGITUDE': 'longitude',
+            'GPS_LATITUDE': 'latitude'
+        })
+
+        return df
+
+
+
+   
     def callback(self, message):
         message.ack()
         breadcrumb = json.loads(message.data.decode('utf-8'))
