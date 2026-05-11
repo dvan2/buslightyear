@@ -8,6 +8,7 @@ import pandas as pd
 import logging
 import threading
 import os
+from sqlalchemy import create_engine
 
 MAX_LATITUDE = 90
 MAX_LONGITUDE = 180
@@ -38,7 +39,7 @@ def validate_batch(batch_df) -> pd.DataFrame:
         'A1: GPS_LATITUDE is null or out of range [-90, 90] | '),
 
         #---ASSERTION 2---[LIMIT]  GPS_LONGITUDE must be non-null and in [-180, 180]-----
-        (batch_df['GPS_LONGITUDE'].isna() | (batch_df['GPS_LONGITUDE'] > MAX_LATITUDE) | (batch_df['GPS_LONGITUDE'] < -MAX_LONGITUDE),
+        (batch_df['GPS_LONGITUDE'].isna() | (batch_df['GPS_LONGITUDE'] > MAX_LONGITUDE) | (batch_df['GPS_LONGITUDE'] < -MAX_LONGITUDE),
          'A2: GPS_LONGITUDE is null or out of range [-180, 180] | '),
 
         #---ASSERTION 3---[EXISTENCE]  OPD_DATE must exist-----
@@ -54,8 +55,8 @@ def validate_batch(batch_df) -> pd.DataFrame:
          'A5: A vehicle can\'t be on two different trips at once | '),
          
         #---ASSERTION 6---[INTRA-RECORD / LIMIT]  GPS coordinates must fall within PDX area lat/long limits -----
-        ((batch_df['GPS_LATITUDE'] < PDX_LAT_MAX) | (batch_df['GPS_LATITUDE'] > PDX_LAT_MIN) | 
-         (batch_df['GPS_LONGITUDE'] < PDX_LON_MAX) | (batch_df['GPS_LONGITUDE'] > PDX_LON_MIN),
+        ((batch_df['GPS_LATITUDE'] < PDX_LAT_MIN) | (batch_df['GPS_LATITUDE'] > PDX_LAT_MAX) | 
+         (batch_df['GPS_LONGITUDE'] < PDX_LON_MIN) | (batch_df['GPS_LONGITUDE'] > PDX_LON_MAX),
          'A6: GPS coordinates are outside of PDX area | '),
          
         #---ASSERTION 7---[EXISTENCE]  Following must be non-null: EVENT_NO_TRIP, EVENT_NO_STOP, METERS, ACT_TIME
@@ -132,6 +133,7 @@ class BreadcrumbProcessor:
         # Data Structures
         self.message_batch = []
         self.batch_lock = threading.Lock()
+        self.db_engine = create_engine('postgresql://bus:lightyear@localhost:5432/breadcrumbs')
 
         self.breadcrumb_count = 0
         self.expected_count = 0
@@ -168,6 +170,12 @@ class BreadcrumbProcessor:
         if not bad_df.empty:
             write_invalid_records(bad_df)
         
+        if not good_df.empty:
+            final_df = self._transform_data(good_df)
+
+            final_df = final_df.drop(columns=['IS_VALID', 'VIOLATION_REASON'])
+            final_df.to_sql('breadcrumb', con=self.db_engine, if_exists='append', index=False)
+
         self.message_batch.clear()
 
 
@@ -199,7 +207,8 @@ class BreadcrumbProcessor:
             'EVENT_NO_TRIP': 'trip_id',
             'VEHICLE_ID': 'vehicle_id',
             'GPS_LONGITUDE': 'longitude',
-            'GPS_LATITUDE': 'latitude'
+            'GPS_LATITUDE': 'latitude',
+            'METERS': 'meters'
         })
 
         return df
