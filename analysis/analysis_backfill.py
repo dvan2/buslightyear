@@ -10,6 +10,18 @@ import threading
 import os
 from sqlalchemy import create_engine
 
+import argparse
+
+parser = argparse.ArgumentParser(description="Publish backup bc data.")
+parser.add_argument(
+    "date",
+    help="The target date to read backfill file from (e.g: 2026-05-02) for invalid file"
+)
+args = parser.parse_args()
+
+TARGET_DATE = args.date
+
+
 MAX_LATITUDE = 90
 MAX_LONGITUDE = 180
 PDX_LAT_MIN, PDX_LAT_MAX = 45.0, 46.0
@@ -117,7 +129,7 @@ def write_invalid_records(invalid_records, run_date=None):
     if run_date is None:
         run_date = datetime.now(ZoneInfo("America/Los_Angeles")).strftime('%Y-%m-%d')
 
-    filename = f"/home/davvan/bus_light_year/analysis/invalid_data/invalid_data_{run_date}.json"
+    filename = f"/home/davvan/bus_light_year/analysis/invalid_data/invalid_data_{TARGET_DATE}.json"
 
     os.makedirs("/home/davvan/invalid_data", exist_ok=True)
     invalid_records.to_json(filename, orient='records', lines=True, mode='a')
@@ -147,6 +159,7 @@ class BreadcrumbProcessor:
         self.total_valid_records = 0
         self.total_invalid_records = 0
 
+
     def reset_datastructure(self):
         self.breadcrumb_count = 0
         self.expected_count = None
@@ -156,9 +169,6 @@ class BreadcrumbProcessor:
         self.latest_bc = None
         self.wall_clock_time = None
         self.sentinel_time = None
-
-        self.total_valid_records = 0
-        self.total_invalid_records = 0
     
     def process_pandas_batch(self):
         """"
@@ -183,6 +193,7 @@ class BreadcrumbProcessor:
             final_df = final_df.drop(columns=['IS_VALID', 'VIOLATION_REASON'])
             final_df.to_sql('breadcrumb', con=self.db_engine, if_exists='append', index=False)
             self.total_valid_records += len(final_df)
+
 
         self.message_batch.clear()
 
@@ -279,6 +290,7 @@ class BreadcrumbProcessor:
                 print(f"Sentinel Received Time: {format_time(self.sentinel_time)}")
                 print(f"Elapsed Time: {elapsed_time:.3f}s")
                 print(f"Throughput: {throughput:.3f} msg/s")
+
                 print(f"Total valid Breadcrumbs stored in db: {self.total_valid_records}")
                 print(f"Total invalid written to json: {self.total_invalid_records}")
 
