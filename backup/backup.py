@@ -38,6 +38,9 @@ def compress_file(filename):
     with open(filename, 'rb') as f_in:
         with gzip.open(gz_filename, 'wb') as f_out:
             shutil.copyfileobj(f_in, f_out)
+    
+    # remove regular file
+    os.remove(filename)
     return gz_filename
 
 #--- Callback Function ----------------------------------------------------
