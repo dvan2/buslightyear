@@ -5,7 +5,6 @@ from google.cloud import pubsub_v1
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 import pandas as pd
-import logging
 import threading
 import os
 from sqlalchemy import create_engine
@@ -16,10 +15,6 @@ PDX_LAT_MIN, PDX_LAT_MAX = 45.0, 46.0
 PDX_LON_MIN, PDX_LON_MAX = -123.5, -122.0
 MAX_VEHICLE_ID = 9999999
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s"
-)
 
 def validate_batch(batch_df) -> pd.DataFrame:
     """
@@ -70,9 +65,6 @@ def validate_batch(batch_df) -> pd.DataFrame:
         batch_df.loc[mask, 'VIOLATION_REASON'] += reason
 
     violations_df =batch_df[batch_df['IS_VALID'] == False]
-
-    for row in violations_df.itertuples():
-        logging.warning("VALIDATION VIOLATION - [%s] | record: %s", row.VIOLATION_REASON, row)
 
     # Return the data frame with violation flags
     return batch_df
@@ -185,7 +177,6 @@ class BreadcrumbProcessor:
             self.total_valid_records += len(final_df)
 
         self.message_batch.clear()
-
 
     def _transform_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """
