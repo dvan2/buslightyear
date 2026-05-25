@@ -135,7 +135,7 @@ class StopEventProcessor:
         self.latest_bc = None
         self.wall_clock_time = None
         self.sentinel_time = None
-        self.curret_service_date = "Unknown"
+        self.current_service_date = "Unknown"
 
         self.total_valid_records = 0
         self.total_invalid_records = 0
@@ -174,6 +174,9 @@ class StopEventProcessor:
     def _transform_data(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.replace(r'^\s*$', None, regex=True)
         
+        valid_dates = df['service_date'].dropna()
+        if not valid_dates.empty:
+            self.current_service_date = valid_dates.iloc[0]
         base_date = pd.to_datetime(df['service_date'])
 
         for time_col in ['leave_time', 'stop_time', 'arrive_time']:
@@ -271,6 +274,7 @@ class StopEventProcessor:
                 print("Summary Statistics:")
                 print(f"First message received: {format_time(self.wall_clock_time)}")
                 print(f"Unique Vehicle IDs: {len(self.unique_vehicles)}")
+                print(f"Service Date: {self.current_service_date}")
                 print(f"Earliest recorded bus: {self.earliest_bc}")
                 print(f"Latest recorded bus: {self.latest_bc}")
                 print(f"Unique Trip IDs: {len(self.unique_trips)}")

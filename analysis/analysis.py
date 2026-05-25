@@ -139,6 +139,8 @@ class BreadcrumbProcessor:
         self.total_valid_records = 0
         self.total_invalid_records = 0
 
+        self.current_service_date = 0
+
     def reset_datastructure(self):
         self.breadcrumb_count = 0
         self.expected_count = None
@@ -232,6 +234,10 @@ class BreadcrumbProcessor:
             if self.wall_clock_time is None: #start timer when first breadcrumb recieved
                 self.wall_clock_time = time.time()
                 print(f"First breadcrumb received at {format_time(self.wall_clock_time)}")
+            
+            raw_ts = breadcrumb.get('OPD_DATE')
+            if raw_ts:
+                self.current_service_date = datetime.strptime(raw_ts, '%d%b%Y:%H:%M:%S').date()
 
             self.breadcrumb_count += 1
             self.unique_vehicles.add(breadcrumb['VEHICLE_ID'])
@@ -263,6 +269,7 @@ class BreadcrumbProcessor:
                 print("Summary Statistics:")
                 print(f"First message received: {format_time(self.wall_clock_time)}")
                 print(f"Unique Vehicle IDs: {len(self.unique_vehicles)}")
+                print(f"Service Date: {self.current_service_date}")
                 print(f"Earliest Breadcrumb from OPD and ACT: {self.earliest_bc}")
                 print(f"Latest Breadcrumb from OPD and ACT: {self.latest_bc}")
                 print(f"Unique Trip IDs: {len(self.unique_trips)}")
