@@ -2,3 +2,4 @@ venv/
 *.log*
 invalid_data/
 __pycache__/
+*.json
